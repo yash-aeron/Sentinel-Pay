@@ -1,0 +1,36 @@
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# --- node ---
+node_modules/
+dist/
+.vite/
+
+# --- secrets (never committed) ---
+.env
+.env.*
+!.env.example
+
+# --- generated artifacts ---
+backend/ml/artifacts/*.joblib
+backend/ml/artifacts/*.json
+!backend/ml/artifacts/.gitkeep
+backend/.chroma/
+*.log
+
+# --- os / editor ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/

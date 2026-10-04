@@ -1,0 +1,90 @@
+name: sentinelpay
+
+# Chroma and Ollama are intentionally not services here:
+#   - Chroma runs embedded in the API process (saves ~400MB on a 15.4GB laptop).
+#   - Ollama runs natively on Windows so the model lands on the RTX 3050 Ti;
+#     GPU passthrough into WSL2 on laptop dGPUs is unreliable.
+# See docs/design.md.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinelpay}
+    ports:
+      - "127.0.0.1:5432:5432"
+    command:
+      - postgres
+      # log_lock_waits + a short deadlock_timeout make the concurrency tests
+      # diagnosable instead of mysterious when something does go wrong.
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - log_lock_waits=on
+      - -c
+      - deadlock_timeout=1s
+      - -c
+      - log_min_duration_statement=200
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentinel} -d ${POSTGRES_DB:-sentinelpay}"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 768m
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    ports:
+      - "127.0.0.1:6379:6379"
+    # noeviction is a safety property, not a performance tweak: if Redis starts
+    # evicting velocity counters, the fraud layer quietly goes blind.
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    mem_limit: 192m
+
+  mongo:
+    image: mongo:7
+    restart: "no"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-sentinel}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-local-dev-only-change-me}
+    ports:
+      - "127.0.0.1:27017:27017"
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "db.adminCommand('ping').ok"
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    volumes:
+      - mongodata:/data/db
+    mem_limit: 512m
+
+volumes:
+  pgdata:
+  mongodata:
