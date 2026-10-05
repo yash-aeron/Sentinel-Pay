@@ -30,6 +30,11 @@ class Account(Base):
         String(16), nullable=False, default="customer", server_default="customer"
     )
     currency: Mapped[str] = mapped_column(CHAR(3), nullable=False, default="USD")
+    # Country the account holder normally transacts from. Used only for the
+    # cross-border signal; not a compliance attribute.
+    home_country: Mapped[str] = mapped_column(
+        CHAR(2), nullable=False, default="US", server_default="US"
+    )
     balance_minor: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
