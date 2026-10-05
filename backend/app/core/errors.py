@@ -29,6 +29,11 @@ class TransactionNotFound(AppError):
     code = "transaction_not_found"
 
 
+class Unauthorized(AppError):
+    status_code = 401
+    code = "unauthorized"
+
+
 class SameAccountTransfer(AppError):
     status_code = 422
     code = "same_account_transfer"
@@ -57,6 +62,30 @@ class ConcurrentIdempotentRequest(AppError):
 class InsufficientFunds(AppError):
     status_code = 409
     code = "insufficient_funds"
+
+
+class AuditUnavailable(AppError):
+    """The ledger committed but the audit store did not.
+
+    Returning 503 is deliberate: the client retries with the same key, the
+    replay path returns the original answer, and the audit upsert is retried
+    because it is keyed on the transaction id.
+    """
+
+    status_code = 503
+    code = "audit_unavailable"
+
+
+class VelocityUnavailable(RuntimeError):
+    """Redis could not answer. Internal: the risk engine degrades to REVIEW."""
+
+
+class CopilotUnavailable(AppError):
+    """The copilot cannot answer right now (no corpus, model down, or the
+    requested transaction does not exist)."""
+
+    status_code = 503
+    code = "copilot_unavailable"
 
 
 class LedgerIntegrityError(AppError):
