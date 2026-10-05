@@ -46,6 +46,7 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
     "concurrency: exercises real Postgres locking behaviour",
+    "risk: exercises real Redis velocity windows and MongoDB audit",
     "perf: latency benchmarks with a hard budget",
 ]
 
