@@ -7,7 +7,7 @@ from fastapi import APIRouter, Header, status
 from fastapi.responses import Response
 from sqlalchemy import select
 
-from app.api.deps import ScopeDep, SessionMakerDep
+from app.api.deps import PaymentsDep, ScopeDep, SessionMakerDep
 from app.core.errors import TransactionNotFound
 from app.db.models import LedgerEntry, Transaction
 from app.schemas.transaction import (
@@ -16,7 +16,7 @@ from app.schemas.transaction import (
     TransactionResponse,
     TransferCreate,
 )
-from app.services import transfer
+from app.services.payments import PaymentCommand
 
 router = APIRouter(tags=["transactions"])
 
@@ -31,17 +31,20 @@ IdempotencyKeyDep = Annotated[
     response_model=TransactionResponse,
     responses={
         201: {"description": "Transfer settled (or replayed from a previous identical request)"},
+        202: {"description": "Transfer held for review; no money has moved"},
+        402: {"description": "Transfer declined by the risk engine; no money has moved"},
         409: {"description": "Insufficient funds, or the same key is still in flight"},
         422: {"description": "Validation failure, or Idempotency-Key reused with a different body"},
+        503: {"description": "Payment recorded but the audit log is temporarily unavailable"},
     },
 )
 async def create_transaction(
     payload: TransferCreate,
     idempotency_key: IdempotencyKeyDep,
     scope: ScopeDep,
-    sessionmaker: SessionMakerDep,
+    payments: PaymentsDep,
 ) -> Response:
-    command = transfer.TransferCommand(
+    command = PaymentCommand(
         scope=scope,
         idempotency_key=idempotency_key,
         from_account_id=payload.from_account_id,
@@ -49,8 +52,11 @@ async def create_transaction(
         amount_minor=payload.amount_minor,
         currency=payload.currency,
         description=payload.description,
+        country=payload.country,
+        merchant_id=payload.merchant_id,
+        device_id=payload.device_id,
     )
-    outcome = await transfer.execute(sessionmaker, command)
+    outcome = await payments.execute(command)
     # Returned as raw text so a replay is byte-identical to the first response.
     return Response(
         content=outcome.body_json,
@@ -82,14 +88,7 @@ async def get_transaction(
         ).all()
 
         return TransactionDetail(
-            id=transaction.id,
-            status=transaction.status,
-            from_account_id=transaction.from_account_id,
-            to_account_id=transaction.to_account_id,
-            amount_minor=transaction.amount_minor,
-            currency=transaction.currency.strip(),
-            description=transaction.description,
-            created_at=transaction.created_at,
+            **_response_fields(transaction),
             entries=[
                 LedgerEntryResponse(
                     id=row.id,
@@ -106,28 +105,40 @@ async def get_transaction(
 
 @router.get("/transactions", response_model=list[TransactionResponse])
 async def list_transactions(
-    sessionmaker: SessionMakerDep, limit: int = 50
+    sessionmaker: SessionMakerDep,
+    limit: int = 50,
+    status: str | None = None,  # noqa: A002 - query parameter name
 ) -> list[TransactionResponse]:
+    """Recent transactions, newest first.
+
+    ``status`` narrows to one state; the analyst queue is
+    ``/transactions?status=held``.
+    """
     limit = max(1, min(limit, 200))
+    query = select(Transaction).order_by(Transaction.created_at.desc()).limit(limit)
+    if status is not None:
+        query = query.where(Transaction.status == status)
     async with sessionmaker() as session:
-        rows = (
-            await session.scalars(
-                select(Transaction).order_by(Transaction.created_at.desc()).limit(limit)
-            )
-        ).all()
-    return [
-        TransactionResponse(
-            id=row.id,
-            status=row.status,
-            from_account_id=row.from_account_id,
-            to_account_id=row.to_account_id,
-            amount_minor=row.amount_minor,
-            currency=row.currency.strip(),
-            description=row.description,
-            created_at=row.created_at,
-        )
-        for row in rows
-    ]
+        rows = (await session.scalars(query)).all()
+    return [TransactionResponse(**_response_fields(row)) for row in rows]
+
+
+def _response_fields(transaction: Transaction) -> dict:
+    return {
+        "id": transaction.id,
+        "status": transaction.status,
+        "from_account_id": transaction.from_account_id,
+        "to_account_id": transaction.to_account_id,
+        "amount_minor": transaction.amount_minor,
+        "currency": transaction.currency.strip(),
+        "description": transaction.description,
+        "created_at": transaction.created_at,
+        "decision": transaction.decision,
+        "risk_score": transaction.risk_score,
+        "model_version": transaction.model_version,
+        "rules_fired": list(transaction.rules_fired or []),
+        "review_status": transaction.review_status,
+    }
 
 
 __all__ = ["router"]
