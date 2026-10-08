@@ -19,6 +19,7 @@ async def create_account(payload: AccountCreate, sessionmaker: SessionMakerDep) 
             owner_ref=payload.owner_ref,
             currency=payload.currency,
             account_type=payload.account_type,
+            home_country=payload.home_country,
             balance_minor=0,
         )
         session.add(account)
@@ -29,6 +30,7 @@ async def create_account(payload: AccountCreate, sessionmaker: SessionMakerDep) 
             account_type=account.account_type,
             currency=account.currency.strip(),
             balance_minor=account.balance_minor,
+            home_country=account.home_country,
             created_at=account.created_at,
         )
 
@@ -47,5 +49,6 @@ async def get_account(account_id: uuid.UUID, sessionmaker: SessionMakerDep) -> A
             account_type=account.account_type,
             currency=account.currency.strip(),
             balance_minor=account.balance_minor,
+            home_country=account.home_country,
             created_at=account.created_at,
         )
