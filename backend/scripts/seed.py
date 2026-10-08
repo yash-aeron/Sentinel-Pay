@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.models import Account
 from app.db.session import create_engine, create_sessionmaker
-from app.services import transfer
+from app.services.payments import PaymentCommand, PaymentService
 
 TREASURY_OWNER = "system-treasury"
 SEED_ACCOUNTS: tuple[tuple[str, int], ...] = (
@@ -45,6 +45,7 @@ async def ensure_account(
         owner_ref=owner_ref,
         account_type=account_type,
         currency="USD",
+        home_country="US",
         balance_minor=0,
     )
     session.add(account)
@@ -56,6 +57,8 @@ async def main() -> None:
     settings = get_settings()
     engine = create_engine(settings.database_url, pool_size=5)
     sessionmaker = create_sessionmaker(engine)
+    # Seeding is setup, not customer traffic: no scoring, no audit.
+    payments = PaymentService(sessionmaker)
 
     try:
         async with sessionmaker() as session, session.begin():
@@ -72,9 +75,8 @@ async def main() -> None:
                 print(f"skip   {owner:<6} already funded ({account.balance_minor} minor units)")
                 continue
 
-            outcome = await transfer.execute(
-                sessionmaker,
-                transfer.TransferCommand(
+            outcome = await payments.execute(
+                PaymentCommand(
                     scope="seed",
                     idempotency_key=f"seed:{owner}:v1",
                     from_account_id=treasury_id,
@@ -82,7 +84,7 @@ async def main() -> None:
                     amount_minor=amount_minor,
                     currency="USD",
                     description="opening balance",
-                ),
+                )
             )
             print(
                 f"funded {owner:<6} {amount_minor:>8} minor units  "
