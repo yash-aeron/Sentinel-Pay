@@ -90,10 +90,12 @@ One Redis sorted set per user: `score = event epoch ms`, `member = txn_id:amount
 ## 7. Risk decisioning (Phase 2)
 
 - IsolationForest on synthetic data (normal traffic + card testing + geo-hopping + amount spikes). Score is mapped to 0–1 and documented as **not a probability**.
-- Deterministic rules layer with stable ids (`R_GEO_3_60S`, `R_CARD_TESTING`, `R_AMOUNT_SPIKE`, …) so an explanation can cite something specific.
+- The feature contract includes a derived `log_amount_vs_prior_avg_10m`: the current amount against the 10-minute window's prior average. Without it the model cannot see a cash-out at all — a spike is a *contrast with history*, not an absolute size, and a model served only raw window sums scored spikes at 0.19 vs normal 0.019 (indistinguishable). With the ratio: 0.30–0.34 median and every shape separated. `python -m ml.train` refuses to write an artifact that fails this separation check.
+- Deterministic rules layer with stable ids (`R_GEO_HOP_3_60S`, `R_CARD_TESTING`, `R_AMOUNT_SPIKE`, …) so an explanation can cite something specific.
 - `decision = max(model band, rule floor)`; thresholds are env-tunable (`RISK_APPROVE_MAX`, `RISK_REVIEW_MAX`).
 - `REVIEW` holds funds — no ledger movement until an analyst approves. Without that, the dashboard's approve button would do nothing real.
 - Decision + features + rules + model version are written to Postgres *and* MongoDB.
+- An attempt is recorded even when declined: the attempt is the signal, and card testing is exactly many unremarkable-looking requests.
 
 ## 8. RAG copilot (Phase 4)
 
