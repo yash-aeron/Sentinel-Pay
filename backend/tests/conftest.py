@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.db.base import Base
 from app.db.session import create_engine, create_sessionmaker
 from app.main import create_app
+from app.services.wiring import build_services, close_services
 
 TABLES = "ledger_entries, idempotency_keys, transactions, accounts"
 
@@ -74,10 +75,27 @@ async def client(engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
     app = create_app()
     app.state.engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://sentinelpay.test"
-    ) as http:
-        yield http
+    # ASGITransport never runs the lifespan, so the app.state attributes the
+    # routes depend on must be injected here. Risk is off: these tests exercise
+    # money movement, and must not depend on Redis or Mongo being reachable.
+    services = await build_services(
+        get_settings(), app.state.sessionmaker, risk_enabled=False
+    )
+    app.state.services = services
+    app.state.payments = services.payments
+    app.state.review = services.review
+    app.state.events = services.events
+    app.state.velocity = services.velocity
+    app.state.audit = services.audit
+    app.state.risk_model = services.model
+    app.state.copilot = services.copilot
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://sentinelpay.test"
+        ) as http:
+            yield http
+    finally:
+        await close_services(services)
 
 
 async def create_account(
